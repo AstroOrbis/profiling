@@ -99,6 +99,9 @@ pub use profiling_procmacros::function;
 #[cfg(feature = "procmacros")]
 pub use profiling_procmacros::skip;
 
+#[cfg(feature = "procmacros")]
+pub use profiling_procmacros::everything;
+
 #[cfg(feature = "profile-with-puffin")]
 pub use puffin;
 #[cfg(feature = "profile-with-puffin")]
