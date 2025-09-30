@@ -18,17 +18,17 @@ pub fn everything(
     for item in &mut file.items {
         match item {
             syn::Item::Fn(func) => {
-                // Skip const functions and those explicitly marked #[profiling::skip]
-                let mut skip_this = func.sig.constness.is_some();
-                for attr in &func.attrs {
-                    let path = attr.path();
-                    if path.segments.last().map(|s| s.ident.to_string()) == Some("skip".to_string())
-                    {
-                        skip_this = true;
-                        break;
-                    }
+                // Skip const fns and #[profiling::skip]
+                if func.sig.constness.is_some() {
+                    continue;
                 }
-                if skip_this {
+                if func.attrs.iter().any(|a| {
+                    a.path()
+                        .segments
+                        .last()
+                        .map(|s| s.ident == "skip")
+                        .unwrap_or(false)
+                }) {
                     continue;
                 }
 
@@ -44,17 +44,16 @@ pub fn everything(
                         continue;
                     };
 
-                    let mut skip_this = func.sig.constness.is_some();
-                    for attr in &func.attrs {
-                        let path = attr.path();
-                        if path.segments.last().map(|s| s.ident.to_string())
-                            == Some("skip".to_string())
-                        {
-                            skip_this = true;
-                            break;
-                        }
+                    if func.sig.constness.is_some() {
+                        continue;
                     }
-                    if skip_this {
+                    if func.attrs.iter().any(|a| {
+                        a.path()
+                            .segments
+                            .last()
+                            .map(|s| s.ident == "skip")
+                            .unwrap_or(false)
+                    }) {
                         continue;
                     }
 
@@ -68,7 +67,12 @@ pub fn everything(
         }
     }
 
-    (quote! { #file }).into()
+    let syn::File { items, .. } = file;
+
+    (quote! {
+        #(#items)*
+    })
+    .into()
 }
 
 #[proc_macro_attribute]
