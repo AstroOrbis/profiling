@@ -3,6 +3,74 @@ use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{parse_macro_input, parse_quote, ImplItem, ItemFn, ItemImpl};
 
+/// Intended to be used at the crate root to profile all functions / impl blocks in the crate.
+#[proc_macro_attribute]
+pub fn everything(
+    args: TokenStream,
+    input: TokenStream,
+) -> TokenStream {
+    if !args.is_empty() {
+        panic!("`#![profiling::everything]` does not take any arguments")
+    }
+
+    let mut file = parse_macro_input!(input as syn::File);
+
+    for item in &mut file.items {
+        match item {
+            syn::Item::Fn(func) => {
+                // Skip const functions and those explicitly marked #[profiling::skip]
+                let mut skip_this = func.sig.constness.is_some();
+                for attr in &func.attrs {
+                    let path = attr.path();
+                    if path.segments.last().map(|s| s.ident.to_string()) == Some("skip".to_string())
+                    {
+                        skip_this = true;
+                        break;
+                    }
+                }
+                if skip_this {
+                    continue;
+                }
+
+                let func_name = func.sig.ident.to_string();
+                let prev_block = &func.block;
+                func.block = Box::new(impl_block(prev_block, &func_name));
+            }
+
+            syn::Item::Impl(item_impl) => {
+                let struct_name = item_impl.self_ty.to_token_stream().to_string();
+                for impl_item in &mut item_impl.items {
+                    let ImplItem::Fn(ref mut func) = impl_item else {
+                        continue;
+                    };
+
+                    let mut skip_this = func.sig.constness.is_some();
+                    for attr in &func.attrs {
+                        let path = attr.path();
+                        if path.segments.last().map(|s| s.ident.to_string())
+                            == Some("skip".to_string())
+                        {
+                            skip_this = true;
+                            break;
+                        }
+                    }
+                    if skip_this {
+                        continue;
+                    }
+
+                    let calling_info = format!("{}: {}", struct_name, func.sig.ident);
+                    let prev_block = &func.block;
+                    func.block = impl_block(prev_block, &calling_info);
+                }
+            }
+
+            _ => {}
+        }
+    }
+
+    (quote! { #file }).into()
+}
+
 #[proc_macro_attribute]
 pub fn function(
     _attr: TokenStream,
