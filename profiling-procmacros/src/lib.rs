@@ -6,73 +6,51 @@ use syn::{parse_macro_input, parse_quote, ImplItem, ItemFn, ItemImpl};
 /// Intended to be used at the crate root to profile all functions / impl blocks in the crate.
 #[proc_macro_attribute]
 pub fn everything(
-    args: TokenStream,
-    input: TokenStream,
+    _attr: TokenStream,
+    item: TokenStream,
 ) -> TokenStream {
-    if !args.is_empty() {
-        panic!("`#![profiling::everything]` does not take any arguments")
-    }
+    let mut ast = parse_macro_input!(item as syn::File); // Or syn::Item for a single item
 
-    let mut file = parse_macro_input!(input as syn::File);
-
-    for item in &mut file.items {
+    for item in &mut ast.items {
         match item {
-            syn::Item::Fn(func) => {
-                // Skip const fns and #[profiling::skip]
-                if func.sig.constness.is_some() {
+            syn::Item::Impl(ItemImpl { self_ty, attrs, .. }) => {
+                let struct_name = self_ty.to_token_stream().to_string();
+                if struct_name == "profiling" {
+                    // Skip profiling module itself to avoid infinite recursion
                     continue;
                 }
-                if func.attrs.iter().any(|a| {
-                    a.path()
-                        .segments
-                        .last()
-                        .map(|s| s.ident == "skip")
-                        .unwrap_or(false)
-                }) {
+                attrs.push(syn::parse_quote! { #[profiling::all_functions] });
+            }
+            syn::Item::Fn(ItemFn { sig, attrs, .. }) => {
+                // Skip const functions
+                if sig.constness.is_some() {
                     continue;
                 }
-
-                let func_name = func.sig.ident.to_string();
-                let prev_block = &func.block;
-                func.block = Box::new(impl_block(prev_block, &func_name));
-            }
-
-            syn::Item::Impl(item_impl) => {
-                let struct_name = item_impl.self_ty.to_token_stream().to_string();
-                for impl_item in &mut item_impl.items {
-                    let ImplItem::Fn(ref mut func) = impl_item else {
-                        continue;
-                    };
-
-                    if func.sig.constness.is_some() {
+                // skip annotated with #[profiling::skip]
+                let mut skip_function = false;
+                for func_attr in attrs.iter() {
+                    let func_attr_info = func_attr.path();
+                    if func_attr_info.segments.is_empty() {
                         continue;
                     }
-                    if func.attrs.iter().any(|a| {
-                        a.path()
-                            .segments
-                            .last()
-                            .map(|s| s.ident == "skip")
-                            .unwrap_or(false)
-                    }) {
+                    if func_attr_info.segments.first().unwrap().ident != "profiling" {
                         continue;
                     }
-
-                    let calling_info = format!("{}: {}", struct_name, func.sig.ident);
-                    let prev_block = &func.block;
-                    func.block = impl_block(prev_block, &calling_info);
+                    if func_attr_info.segments.last().unwrap().ident == "skip" {
+                        skip_function = true;
+                        break;
+                    }
                 }
+                if skip_function {
+                    continue;
+                }
+                attrs.push(syn::parse_quote! { #[profiling::function] });
             }
-
             _ => {}
         }
     }
 
-    let syn::File { items, .. } = file;
-
-    (quote! {
-        #(#items)*
-    })
-    .into()
+    quote! { #ast }.into()
 }
 
 #[proc_macro_attribute]
