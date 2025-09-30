@@ -76,6 +76,12 @@ pub fn all_functions(
                 continue 'func_loop;
             }
         }
+
+        // Skip const functions
+        if func.sig.constness.is_some() {
+            continue 'func_loop;
+        }
+
         let prev_block = &func.block;
         let calling_info = format!("{}: {}", struct_name, func.sig.ident);
         func.block = impl_block(prev_block, &calling_info);
